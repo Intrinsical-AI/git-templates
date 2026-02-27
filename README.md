@@ -21,17 +21,23 @@ Opinionated project templates for Python backend services. Copy what you need, f
 | `.env.template` | Placeholder for local dev env vars |
 
 
-## Stack (default)
+## Stack (default) — opinionated by design
 
-- **Python** >= `[PYTHON_VERSION]` (default 3.12 in Dockerfile)
-- **uv** as package/project manager
-- **Ruff** for linting + formatting
-- **Mypy** for type checking
-- **Pytest** for testing
-- **Docker** + Compose for containerization
-- **PostgreSQL** + **Redis** as default services
+These templates ship with a specific stack because **good defaults beat endless configuration**. Instead of abstracting over every possible database, cache, or CI provider, we picked one well-understood option per layer and documented it thoroughly. The result: you get a working setup in minutes, not hours.
 
-Not using one of these? Delete the relevant sections — the templates are designed to be trimmed.
+| Layer | Default | Why |
+| ----- | ------- | --- |
+| Language | Python >= `[PYTHON_VERSION]` | Target audience. 3.12+ for modern syntax & performance |
+| Package manager | uv | Fast, deterministic, replaces pip + pip-tools + venv |
+| Lint + format | Ruff | Single tool replaces black, isort, flake8, pyupgrade |
+| Type checking | Mypy | Most mature Python type checker, wide ecosystem support |
+| Testing | Pytest | De facto standard, rich plugin ecosystem |
+| Containers | Docker + Compose | Industry standard for local dev and deployment |
+| Database | PostgreSQL 16 | Most capable open-source RDBMS, strong defaults |
+| Cache / broker | Redis 7 | Ubiquitous in-memory store, minimal config |
+| CI | GitHub Actions | Largest hosted CI platform, native to GitHub repos |
+
+**Using a different database, cache, or service?** Delete or replace the relevant sections — the templates are designed to be trimmed, not to be a universal abstraction layer. Opinionated starters get you running; your project's needs dictate what stays.
 
 ## Conventions
 
