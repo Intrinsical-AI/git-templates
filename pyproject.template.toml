@@ -100,8 +100,10 @@ Changelog = "[CHANGELOG_URL]"
 # --- Runtime dependencies (PEP 508) ---
 # Installed automatically when someone does `uv add [PROJECT_SLUG]` or `pip install [PROJECT_SLUG]`.
 dependencies = [
-  # "pydantic>=2.7",
-  # "httpx>=0.27",
+  # "fastapi>=0.115",
+  # "uvicorn>=0.34",
+  # "pydantic>=2.10",
+  # "httpx>=0.28",
   # 'numpy>=2; python_version>="3.12"',
   #   ↑ Environment markers: conditional deps based on Python version, OS, etc.
 ]

@@ -199,6 +199,8 @@ services:
     volumes:
       - app_cache:/app/.cache
 #     ↑ Persistent cache directory. Survives container restarts.
+      # - .:/app
+      #   ↑ Bind mount current directory for hot reloading in development.
 
     networks:
       - app_net
