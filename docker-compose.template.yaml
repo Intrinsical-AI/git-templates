@@ -1,0 +1,428 @@
+# docker-compose.yaml — [PROJECT_NAME]
+#
+# Usage:
+#   docker compose --env-file .env up -d --build
+#   docker compose --profile proxy up -d
+#
+# This file follows the Compose Specification (not the legacy v2/v3 format).
+# "version:" key is intentionally omitted since it's deprecated.
+
+name: "[PROJECT_NAME]"
+#   ↑ Project name. Prefixes container names, networks, and volumes.
+#     Override with: COMPOSE_PROJECT_NAME=foo docker compose up
+
+# --- YAML anchors (DRY helpers) ---
+# Uncomment to reuse across services.
+
+# x-logging: &default_logging
+#   driver: "json-file"
+#   options:
+#     max-size: "10m"    # max size per log file before rotation
+#     max-file: "5"      # keep 5 rotated files (50 MB total per container)
+#   ↑ Prevents unbounded log growth. Apply to each service with:
+#     logging: *default_logging
+
+# x-common-env: &common_env
+#   APP_ENV: ${APP_ENV:-production}
+#   TZ: ${TZ:-Etc/UTC}
+#   ↑ Shared env vars. Merge into a service with:
+#     environment:
+#       <<: *common_env
+#       OTHER_VAR: value
+
+
+
+
+
+# --- Networks ---
+networks:
+  app_net:
+    name: "[PROJECT_NAME]_net"
+    driver: bridge
+#   ↑ Default bridge network. All services that need to talk to each other
+#     (app, redis, proxy) join this network.
+
+  db_net:
+    name: "[PROJECT_NAME]_dbnet"
+    driver: bridge
+    internal: true
+#   ↑ internal: true = no outbound internet access from this network.
+#     Only app and db join it — isolates the database from the internet.
+
+
+
+
+
+
+# --- Volumes ---
+volumes:
+  db_data:
+#   ↑ Persistent storage for PostgreSQL. Survives `docker compose down`.
+#     Destroyed only with `docker compose down -v`.
+  redis_data:
+#   ↑ Persistent storage for Redis AOF/RDB files.
+  app_cache:
+#   ↑ Application-level cache (pip, uv, etc.). Optional.
+  ollama_data:
+#   ↑ Persistent storage for Ollama models. Used by the ollama profile.
+
+
+
+
+
+
+# --- Secrets ---
+# File-based secrets. Mounted read-only at /run/secrets/<name> inside containers.
+# More secure than env vars (not visible in `docker inspect` or /proc/environ).
+secrets:
+  db_password:
+    file: ./secrets/db_password.txt
+#   ↑ Create with: mkdir -p secrets && echo "your-password" > secrets/db_password.txt
+#     Your app reads the password from /run/secrets/db_password (a file, not an env var).
+  # api_key:
+  #   file: ./secrets/api_key.txt
+
+
+
+
+
+
+# ==========================================================================
+# Services
+# ==========================================================================
+
+services:
+  # --- Application ---
+  app:
+    build:
+      context: .
+#     ↑ Build context = current directory. Docker sends this dir to the daemon.
+      dockerfile: Dockerfile
+      target: runtime
+#     ↑ Build only up to the "runtime" stage. Skips builder artifacts.
+      args:
+        APP_NAME: "${APP_NAME:-[APP_NAME]}"
+        VERSION: "${VERSION:-0.0.0}"
+        VCS_REF: "${VCS_REF:-[GIT_SHA]}"
+        BUILD_DATE: "${BUILD_DATE:-[ISO_8601_UTC]}"
+        SOURCE_REPO: "${SOURCE_REPO:-[REPO_URL]}"
+#       ↑ Build args passed to the Dockerfile. ${VAR:-default} syntax means:
+#         use the env var if set, otherwise use the default after ":-".
+
+    # image: "[REGISTRY]/[APP_IMAGE]:[TAG]"
+    #   ↑ Uncomment to pull a pre-built image instead of building locally.
+    #     Remove the `build:` block when using a pre-built image.
+
+    container_name: "[PROJECT_NAME]_app"
+#   ↑ Explicit name. Without this, Compose generates: <project>-<service>-<n>.
+
+    restart: unless-stopped
+#   ↑ Restart policy. Options:
+#     "no"             — never restart (default)
+#     "always"         — always restart, even after `docker stop` + daemon restart
+#     "unless-stopped" — like always, but stays stopped after `docker stop`
+#     "on-failure"     — restart only on non-zero exit code
+
+    init: true
+#   ↑ Runs tini as PID 1. Properly reaps zombie processes and forwards signals.
+#     Without this, your Python process is PID 1 and may not handle SIGTERM correctly.
+
+    environment:
+      # <<: *common_env
+      #   ↑ Uncomment to merge shared env vars from the x-common-env anchor.
+      APP_ENV: ${APP_ENV:-production}
+#     ↑ Runtime mode. Override per environment (dev, staging, production).
+      TZ: ${TZ:-Etc/UTC}
+      APP_PORT: ${APP_PORT:-8000}
+
+      # Database connection:
+      DB_HOST: ${DB_HOST:-db}
+#     ↑ "db" = the service name below. Docker DNS resolves it to the db container's IP.
+      DB_PORT: ${DB_PORT:-5432}
+      DB_NAME: "${DB_NAME:-[DB_NAME]}"
+      DB_USER: "${DB_USER:-[DB_USER]}"
+      DB_PASSWORD_FILE: /run/secrets/db_password
+#     ↑ Path to the mounted secret file. Your app must read this file
+#       (not an env var) to get the password. Most ORMs/frameworks support this.
+
+      # Cache:
+      REDIS_URL: ${REDIS_URL:-redis://redis:6379/0}
+#     ↑ "redis" = the service name. /0 = database index.
+
+      LOG_LEVEL: ${LOG_LEVEL:-INFO}
+
+      # LLM (Ollama) — only relevant if using the ollama profile:
+      OLLAMA_HOST: ${OLLAMA_HOST:-http://ollama:11434}
+#     ↑ "ollama" = the service name. Resolved via Docker DNS when profile is active.
+      # [ADD_APP_ENV_HERE]
+
+    secrets:
+      - db_password
+#     ↑ Makes /run/secrets/db_password available inside this container.
+
+    ports:
+      - "${APP_BIND_ADDR:-127.0.0.1}:${APP_PORT:-8000}:${APP_PORT:-8000}"
+#     ↑ Format: host_ip:host_port:container_port
+#       127.0.0.1 = bind to localhost only (not exposed to the network).
+#       Use 0.0.0.0 to expose publicly (or put behind a reverse proxy).
+
+    expose:
+      - "${APP_PORT:-8000}"
+#     ↑ Exposes the port to other containers on the same network (not to host).
+#       Purely documentation — containers can already reach each other by port.
+
+    healthcheck:
+      test: ["CMD-SHELL", "python -c \"import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1', ${APP_PORT:-8000})); s.close()\""]
+#     ↑ TCP check using Python stdlib (no curl needed in the image).
+#       CMD-SHELL runs via /bin/sh, which expands ${APP_PORT} at runtime.
+#       Opens a socket to localhost:APP_PORT. If the connection succeeds,
+#       the container is healthy. If it times out or refuses, it's unhealthy.
+      interval: 30s
+#     ↑ How often to run the check.
+      timeout: 3s
+#     ↑ Max time to wait for the check to complete.
+      retries: 3
+#     ↑ Number of consecutive failures before marking unhealthy.
+      start_period: 20s
+#     ↑ Grace period after container start. Failures during this period
+#       don't count toward retries (gives the app time to boot).
+
+    depends_on:
+      db:
+        condition: service_healthy
+      redis:
+        condition: service_healthy
+#     ↑ Wait for db and redis to be healthy before starting app.
+#       Without `condition`, Compose only waits for the container to start
+#       (not for it to be ready).
+
+    volumes:
+      - app_cache:/app/.cache
+#     ↑ Persistent cache directory. Survives container restarts.
+
+    networks:
+      - app_net
+      - db_net
+#     ↑ App is on both networks: talks to redis/proxy via app_net,
+#       and to postgres via the isolated db_net.
+
+    # --- Security hardening ---
+    user: "${APP_UID:-1000}:${APP_GID:-1000}"
+#   ↑ Run as non-root. Must match the UID/GID of `appuser` in the Dockerfile.
+
+    read_only: false
+#   ↑ Set true to make the root filesystem read-only. Your app can only
+#     write to explicitly mounted volumes and tmpfs. Good for security,
+#     but some apps need write access to /tmp or cache dirs.
+
+    tmpfs:
+      - /tmp
+#     ↑ In-memory filesystem for /tmp. Needed if read_only: true.
+
+    cap_drop:
+      - ALL
+#     ↑ Drop ALL Linux capabilities. This removes privileges like:
+#       NET_RAW (raw sockets), SYS_ADMIN (mount, etc.), CHOWN, etc.
+#     Add back specific ones if needed:
+#     cap_add:
+#       - NET_BIND_SERVICE    # bind to ports < 1024
+
+    security_opt:
+      - no-new-privileges:true
+#     ↑ Prevents the process from gaining new privileges via setuid/setgid
+#       binaries or other escalation mechanisms.
+
+    deploy:
+      resources:
+        limits:
+          cpus: "${APP_CPU_LIMIT:-1.0}"
+#         ↑ Max CPU cores this container can use. 1.0 = one full core.
+          memory: "${APP_MEM_LIMIT:-512M}"
+#         ↑ Hard memory limit. Container is killed (OOM) if it exceeds this.
+        reservations:
+          cpus: "${APP_CPU_RESERVE:-0.25}"
+          memory: "${APP_MEM_RESERVE:-128M}"
+#         ↑ Guaranteed minimum resources. Used by schedulers (Swarm, k8s).
+
+    # logging: *default_logging
+    #   ↑ Uncomment after enabling the x-logging anchor above.
+
+
+
+
+
+
+
+  # --- Database Service (PostgreSQL) ---
+  db:
+    image: postgres:16-alpine
+#   ↑ Alpine variant = smaller image (~80 MB vs ~400 MB for full Debian).
+#     Pin the major version (16) to avoid breaking changes on pull.
+
+    container_name: "[PROJECT_NAME]_db"
+    restart: unless-stopped
+
+    environment:
+      POSTGRES_DB: "${DB_NAME:-[DB_NAME]}"
+#     ↑ Database created on first startup. Only applies to empty db_data volume.
+      POSTGRES_USER: "${DB_USER:-[DB_USER]}"
+#     ↑ Superuser name. Created on first startup.
+      POSTGRES_PASSWORD_FILE: /run/secrets/db_password
+#     ↑ Reads password from file. More secure than POSTGRES_PASSWORD env var.
+#       Alternatively: POSTGRES_PASSWORD: ${DB_PASSWORD:?set DB_PASSWORD}
+#       (the :? syntax makes Compose fail if the var is unset).
+
+    secrets:
+      - db_password
+
+    ports:
+      - "${DB_BIND_ADDR:-127.0.0.1}:${DB_PORT_HOST:-5432}:5432"
+#     ↑ Bind to localhost only. Prevents accidental exposure of the DB.
+#       Remove this port mapping entirely in production (app connects via db_net).
+
+    volumes:
+      - db_data:/var/lib/postgresql/data
+#     ↑ Persist database files. Without this, data is lost on container removal.
+      # - ./db/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
+      #   ↑ SQL scripts in this directory run on first startup (empty volume only).
+      #     :ro = read-only mount.
+
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U \"${DB_USER:-[DB_USER]}\" -d \"${DB_NAME:-[DB_NAME]}\" -h 127.0.0.1"]
+#     ↑ pg_isready: lightweight check that postgres is accepting connections.
+#       -U user -d database -h host. Returns 0 if ready, non-zero otherwise.
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 20s
+
+    networks:
+      - db_net
+#     ↑ Only on the isolated db_net. Not directly reachable from app_net or host.
+
+    # logging: *default_logging
+
+
+
+
+
+
+
+
+
+  # --- Cache Service (Redis) ---
+  redis:
+    image: redis:7-alpine
+    container_name: "[PROJECT_NAME]_redis"
+    restart: unless-stopped
+
+    command: ["redis-server", "--appendonly", "yes"]
+#   ↑ Enable AOF (Append Only File) persistence. Data survives restarts.
+#     Without this, Redis is purely in-memory (data lost on restart).
+
+    ports:
+      - "${REDIS_BIND_ADDR:-127.0.0.1}:${REDIS_PORT_HOST:-6379}:6379"
+#     ↑ Localhost only. Remove in production if only accessed by app via app_net.
+
+    volumes:
+      - redis_data:/data
+#     ↑ Persist AOF/RDB files.
+
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+#     ↑ Returns PONG if Redis is ready.
+      interval: 10s
+      timeout: 3s
+      retries: 10
+      start_period: 10s
+
+    networks:
+      - app_net
+#     ↑ On app_net so the app container can reach it by hostname "redis".
+
+    # logging: *default_logging
+
+
+
+
+
+
+
+
+
+  # --- LLM runtime (Ollama) — optional ---
+  # Enable with: docker compose --profile ollama up
+  ollama:
+    image: ollama/ollama:latest
+    container_name: "[PROJECT_NAME]_ollama"
+    profiles: ["ollama"]
+#   ↑ Not started by default. Only starts when explicitly requested via --profile.
+    restart: unless-stopped
+
+    ports:
+      - "${OLLAMA_BIND_ADDR:-127.0.0.1}:${OLLAMA_PORT_HOST:-11434}:11434"
+#     ↑ Ollama API. Localhost only by default.
+
+    volumes:
+      - ollama_data:/root/.ollama
+#     ↑ Persist downloaded models. Without this, models are re-pulled on every restart.
+
+    healthcheck:
+      test: ["CMD-SHELL", "curl -fsS http://127.0.0.1:11434/api/tags || exit 1"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+      start_period: 30s
+
+    networks:
+      - app_net
+#     ↑ On app_net so the app container can reach it by hostname "ollama".
+
+    # GPU passthrough (uncomment if host has NVIDIA GPU + nvidia-container-toolkit):
+    # deploy:
+    #   resources:
+    #     reservations:
+    #       devices:
+    #         - driver: nvidia
+    #           count: all
+    #           capabilities: [gpu]
+
+    # logging: *default_logging
+
+  # --- Reverse proxy Service (Traefik) — optional ---
+  # Enable with: docker compose --profile proxy up
+  proxy:
+    image: traefik:v3.1
+    container_name: "[PROJECT_NAME]_proxy"
+    profiles: ["proxy"]
+#   ↑ Not started by default. Only starts when explicitly requested via --profile.
+    restart: unless-stopped
+
+    command:
+      - "--api.dashboard=true"
+#     ↑ Enable Traefik dashboard (http://localhost:8080 by default).
+      - "--providers.docker=true"
+#     ↑ Auto-discover services via Docker labels.
+      - "--providers.docker.exposedbydefault=false"
+#     ↑ Don't expose containers unless they have traefik.enable=true label.
+      - "--entrypoints.web.address=:80"
+      # TLS (uncomment for HTTPS):
+      # - "--entrypoints.websecure.address=:443"
+      # - "--certificatesresolvers.le.acme.httpchallenge=true"
+      # - "--certificatesresolvers.le.acme.email=${LE_EMAIL}"
+      #   ↑ Let's Encrypt auto-TLS. Requires a public domain pointing to this server.
+
+    ports:
+      - "${PROXY_HTTP_PORT:-80}:80"
+      # - "${PROXY_HTTPS_PORT:-443}:443"
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+#     ↑ Traefik reads Docker events to discover containers. :ro = read-only.
+#       Security note: access to docker.sock = root access to the host.
+#       In production, consider using Traefik's file provider instead.
+
+    networks:
+      - app_net
+
+    # logging: *default_logging

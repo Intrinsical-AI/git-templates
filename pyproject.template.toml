@@ -1,0 +1,329 @@
+# =============================================================================
+# pyproject.toml — [PROJECT_SLUG]
+#
+# Single source of truth for project metadata, dependencies, and tool config.
+# Compatible with uv, pip, hatch, and any PEP 517/621/735 compliant tool.
+# =============================================================================
+
+
+
+
+
+
+# --- Build system (PEP 517) ---
+# Required for `uv build`, `python -m build`, or publishing to PyPI.
+# If this is an app (not a library), you can remove this section entirely —
+# uv and pip can still install from pyproject.toml without it.
+[build-system]
+requires = ["hatchling>=1.26"]
+#   ↑ Build backend dependency. Installed in an isolated env during `uv build`.
+#     Alternatives: setuptools, flit-core, maturin (Rust), pdm-backend.
+build-backend = "hatchling.build"
+#   ↑ The Python callable that produces wheels/sdists.
+
+
+
+
+
+
+
+# --- Project metadata (PEP 621) ---
+# This is the standard metadata format. All modern tools read it.
+[project]
+name = "[PROJECT_SLUG]"
+#   ↑ Package name on PyPI. Convention: lowercase, hyphens (e.g. "my-project").
+#     Import name can differ (e.g. my_project).
+
+description = "[ONE_LINE_DESCRIPTION]"
+#   ↑ Shown on PyPI search results and `pip show`.
+
+readme = { file = "README.md", content-type = "text/markdown" }
+#   ↑ Long description for the PyPI page. Rendered as HTML.
+
+requires-python = ">=[PYTHON_VERSION]"
+#   ↑ Minimum Python version. uv/pip will refuse to install on older Pythons.
+#     Use the oldest version you test against.
+
+authors = [{ name = "[AUTHOR_NAME]", email = "[AUTHOR_EMAIL]" }]
+#   ↑ Shown on PyPI. Can have multiple entries.
+
+keywords = ["[KEYWORD_1]", "[KEYWORD_2]"]
+#   ↑ PyPI search keywords. Keep relevant and concise.
+
+classifiers = [
+  "Programming Language :: Python :: 3",
+  "License :: OSI Approved :: [LICENSE_CLASSIFIER]",
+#   ↑ Legacy classifier (e.g. "MIT License"). Still shown on PyPI sidebar.
+  "Typing :: Typed",
+#   ↑ Signals that the package ships py.typed and type stubs.
+]
+
+
+
+
+
+# --- Version (PEP 440) ---
+version = "0.1.0"
+#   ↑ Static version. Bump manually before each release.
+#     For dynamic versioning from git tags or __init__.py, use:
+#       dynamic = ["version"]
+#     and configure [tool.hatch.version] below.
+
+
+
+
+
+# --- License (PEP 639) ---
+license = "[SPDX_LICENSE]"
+#   ↑ SPDX expression. Examples: "MIT", "Apache-2.0", "GPL-3.0-only",
+#     "MIT OR Apache-2.0" (dual license).
+license-files = ["LICENSE*", "COPYING*"]
+#   ↑ Glob patterns for license files included in the distribution.
+
+
+
+
+
+
+# --- Project URLs ---
+# Shown as links on the PyPI page.
+[project.urls]
+Homepage = "[HOMEPAGE_URL]"
+Repository = "[REPO_URL]"
+Issues = "[ISSUES_URL]"
+Changelog = "[CHANGELOG_URL]"
+
+
+
+
+
+# --- Runtime dependencies (PEP 508) ---
+# Installed automatically when someone does `uv add [PROJECT_SLUG]` or `pip install [PROJECT_SLUG]`.
+dependencies = [
+  # "pydantic>=2.7",
+  # "httpx>=0.27",
+  # 'numpy>=2; python_version>="3.12"',
+  #   ↑ Environment markers: conditional deps based on Python version, OS, etc.
+]
+
+
+
+
+
+
+# --- Optional extras ---
+# Installed with: uv add "[PROJECT_SLUG][cli]" or pip install "[PROJECT_SLUG][cli]"
+# These ARE part of the published distribution (unlike dependency-groups).
+[project.optional-dependencies]
+cli = [
+  # "rich>=13",
+  # "click>=8",
+]
+postgres = [
+  # "psycopg[binary]>=3.2",
+]
+
+
+# --- Entry points / CLI scripts ---
+# Creates a CLI command when the package is installed.
+[project.scripts]
+# [PROJECT_SLUG] = "[PACKAGE].cli:main"
+#   ↑ After install, running `[PROJECT_SLUG]` in terminal calls [PACKAGE].cli.main().
+
+
+
+
+
+
+
+
+
+# =============================================================================
+# Dependency groups (PEP 735)
+# =============================================================================
+# NOT included in built distributions. Only for local development.
+# Install with: uv sync --group dev
+# Install all:  uv sync --all-groups
+[dependency-groups]
+dev = [
+  "pytest>=8",
+#   ↑ Test framework.
+  "pytest-cov>=5",
+#   ↑ Coverage plugin for pytest. Adds --cov flag.
+  "mypy>=1.8",
+#   ↑ Static type checker.
+  "ruff>=0.6",
+#   ↑ Linter + formatter. Replaces flake8, isort, black.
+  "coverage[toml]>=7",
+#   ↑ Coverage.py with TOML config support (reads [tool.coverage.*] below).
+]
+docs = [
+  # "mkdocs>=1.6",
+  # "mkdocs-material>=9.5",
+]
+
+
+
+
+
+
+
+# =============================================================================
+# Build configuration (Hatch)
+# =============================================================================
+
+[tool.hatch.build.targets.wheel]
+packages = ["[PACKAGE]"]
+#   ↑ Which directories to include in the wheel.
+#     Flat layout:  packages = ["[PACKAGE]"]
+#     Src layout:   packages = ["src/[PACKAGE]"]
+
+[tool.hatch.build.targets.sdist]
+include = ["[PACKAGE]", "tests", "README.md", "LICENSE*"]
+#   ↑ What goes into the source distribution (.tar.gz).
+#     Tests are included so downstream packagers can verify the build.
+
+
+# Dynamic versioning (uncomment if using dynamic = ["version"] above):
+# [tool.hatch.version]
+# path = "[PACKAGE]/__init__.py"
+#   ↑ Reads __version__ = "x.y.z" from __init__.py.
+
+
+
+
+
+
+
+
+
+# =============================================================================
+# Ruff (linter + formatter)
+# =============================================================================
+# Single tool replacing flake8, isort, pyupgrade, black, and more.
+# Docs: https://docs.astral.sh/ruff/
+
+[tool.ruff]
+target-version = "py[PYTHON_VERSION_NODOT]"
+#   ↑ Minimum Python syntax to target. Affects which upgrade rules apply.
+#     Must match requires-python above. Format: "py312" for Python 3.12.
+line-length = 100
+#   ↑ Max line length for both linter and formatter.
+extend-exclude = ["build", "dist", ".venv"]
+#   ↑ Additional directories to skip (on top of ruff's defaults).
+
+[tool.ruff.format]
+quote-style = "double"
+#   ↑ Use double quotes for strings. Alternatives: "single", "preserve".
+indent-style = "space"
+#   ↑ Use spaces (not tabs). Standard in Python.
+
+[tool.ruff.lint]
+select = ["E", "F", "I", "UP", "B"]
+#   ↑ Enabled rule sets:
+#     E  = pycodestyle errors (whitespace, indentation, etc.)
+#     F  = pyflakes (undefined names, unused imports, etc.)
+#     I  = isort (import sorting)
+#     UP = pyupgrade (modernize syntax for target-version)
+#     B  = flake8-bugbear (common bugs and design problems)
+#   Add more as the project stabilizes: "S" (security), "PT" (pytest style), etc.
+ignore = []
+#   ↑ Specific rules to suppress. E.g. ["E501"] to ignore line length.
+fixable = ["ALL"]
+#   ↑ Allow ruff to auto-fix all fixable violations with `ruff check --fix`.
+
+
+
+
+
+
+# =============================================================================
+# Pytest
+# =============================================================================
+# Docs: https://docs.pytest.org/en/stable/reference/customize.html
+
+[tool.pytest.ini_options]
+minversion = "6.0"
+#   ↑ Fail if pytest version is too old.
+addopts = ["-ra", "--strict-config", "--strict-markers"]
+#   ↑ Default flags applied to every `pytest` invocation:
+#     -ra              Show summary of all non-passing tests (failed, error, skipped).
+#     --strict-config  Error on unknown config keys (catches typos in this file).
+#     --strict-markers Error on unregistered markers (catches @pytest.mark.typo).
+testpaths = ["tests"]
+#   ↑ Where pytest looks for tests. Avoids scanning src/, docs/, etc.
+
+
+
+
+
+
+
+
+
+# =============================================================================
+# Coverage.py
+# =============================================================================
+# Docs: https://coverage.readthedocs.io/en/latest/config.html
+
+[tool.coverage.run]
+branch = true
+#   ↑ Measure branch coverage (if/else), not just line coverage.
+source = ["[PACKAGE]"]
+#   ↑ Only measure coverage for your package (not tests or third-party code).
+omit = ["tests/*"]
+#   ↑ Explicitly exclude test files from coverage measurement.
+
+[tool.coverage.report]
+show_missing = true
+#   ↑ Show line numbers of uncovered code in the terminal report.
+skip_covered = false
+#   ↑ Still show files with 100% coverage (set true to hide them).
+fail_under = 0
+#   ↑ Minimum coverage percentage. CI fails if below this.
+#     Set to 85 (or your team's target) when the project is stable.
+
+
+
+
+
+
+
+# =============================================================================
+# Mypy (static type checker)
+# =============================================================================
+# Docs: https://mypy.readthedocs.io/en/stable/config_file.html
+
+[tool.mypy]
+python_version = "[PYTHON_VERSION]"
+#   ↑ Target Python version for type checking. Should match requires-python.
+warn_return_any = true
+#   ↑ Warn when a function returns Any (often means missing type info).
+warn_unused_configs = true
+#   ↑ Warn if a config option has no effect.
+warn_unused_ignores = true
+#   ↑ Warn if a `# type: ignore` comment is unnecessary.
+no_implicit_optional = true
+#   ↑ Don't treat `def f(x: str = None)` as `Optional[str]`.
+#     Forces explicit: `def f(x: str | None = None)`.
+disallow_untyped_defs = false
+#   ↑ Set true when ready: requires ALL functions to have type annotations.
+#     Start with false, gradually add types, then flip to true.
+check_untyped_defs = true
+#   ↑ Type-check the bodies of functions even if they lack annotations.
+#     Catches bugs without requiring full annotation coverage.
+pretty = true
+#   ↑ Nicer error formatting with source code context.
+
+
+
+
+
+
+
+
+# Per-module overrides (relax rules for specific modules):
+# [[tool.mypy.overrides]]
+# module = ["[PACKAGE].legacy.*"]
+# ignore_errors = true
+#   ↑ Useful for legacy code you haven't typed yet.

@@ -1,0 +1,310 @@
+# syntax=docker/dockerfile:1.7-labs
+#   ↑ Enables BuildKit labs features (e.g. heredocs, advanced COPY).
+#     Requires DOCKER_BUILDKIT=1 or Docker Buildx. Safe to remove if not needed.
+
+
+# Multi-stage Dockerfile — [APP_NAME]
+
+
+
+
+
+############################
+# 0) Global build args
+############################
+# These ARGs are available to all stages. Docker scoping rule: each stage must re-declare them.
+
+ARG APP_NAME="[APP_NAME]"
+#   ↑ Used in OCI labels and as a documentation aid. Not used at runtime.
+ARG APP_PORT="8000"
+#   ↑ Default listen port. Passed to EXPOSE and ENV in the runtime stage.
+
+ARG BUILDER_IMAGE="python:[PYTHON_VERSION]-slim-bookworm"
+ARG RUNTIME_IMAGE="python:[PYTHON_VERSION]-slim-bookworm"
+#   ↑ Pin base images explicitly. Avoid :latest in production.
+#     slim-bookworm = Debian 12 minimal. Alternatives:
+#       - python:[PYTHON_VERSION]-bookworm  (full Debian, larger but more build tools)
+#       - gcr.io/distroless/python3         (no shell, smallest, harder to debug)
+
+ARG VERSION="0.0.0"
+ARG VCS_REF="[GIT_SHA]"
+ARG BUILD_DATE="[ISO_8601_UTC]"
+ARG SOURCE_REPO="[REPO_URL]"
+#   ↑ Metadata args. Typically injected by CI:
+#       --build-arg VCS_REF="$(git rev-parse --short HEAD)"
+#       --build-arg BUILD_DATE="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+
+
+
+
+
+########################################
+# 1) Builder: deps + build artifacts
+########################################
+
+FROM ${BUILDER_IMAGE} AS builder
+#   ↑ Named stage. Referenced by: COPY --from=builder in the runtime stage.
+#     Everything here is discarded in the final image (multi-stage benefit).
+
+ENV DEBIAN_FRONTEND=noninteractive \
+#   ↑ Prevents apt from prompting during installs (hangs the build otherwise).
+    PYTHONDONTWRITEBYTECODE=1 \
+#   ↑ Don't create .pyc files. Saves space and avoids stale bytecode issues.
+    PYTHONUNBUFFERED=1
+#   ↑ Force stdout/stderr to be unbuffered. Ensures logs appear in real time
+#     in `docker logs` / CloudWatch / etc. without waiting for flush.
+
+WORKDIR /build
+#   ↑ All subsequent commands run from /build. Created automatically if missing.
+
+
+
+
+# --- System deps for building wheels / native extensions ---
+# These packages are ONLY needed at build time (gcc, headers, etc.).
+# They will NOT be in the final image.
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+#   ↑ Cache mounts: persist apt cache across builds. `sharing=locked` prevents
+#     concurrent builds from corrupting the cache. Requires BuildKit.
+    apt-get update && apt-get install -y --no-install-recommends \
+#   ↑ --no-install-recommends: skip "Recommends" packages (docs, man pages, etc.)
+      build-essential \
+#     ↑ Meta-package: gcc, g++, make, libc-dev. Needed for compiling C extensions.
+      git \
+#     ↑ Needed if any dependency is installed from a git URL.
+      ca-certificates \
+#     ↑ TLS root certs. Required for HTTPS downloads (pip, uv, git clone).
+      pkg-config \
+#     ↑ Helps compilers find library paths (e.g. libpq, libssl).
+      # [ADD_BUILD_LIBS] (e.g. libpq-dev, libssl-dev, libffi-dev)
+#     ↑ Add headers for native Python deps here. Examples:
+#       libpq-dev       → psycopg2 / asyncpg
+#       libssl-dev      → cryptography
+#       libffi-dev      → cffi
+    && rm -rf /var/lib/apt/lists/*
+#   ↑ Clean apt lists to reduce layer size (cache mount makes this less critical
+#     but it's still good practice).
+
+ENV UV_PROJECT_ENVIRONMENT=/opt/venv \
+#   ↑ Tell uv to create/use the venv at /opt/venv instead of the default .venv/.
+#     We'll COPY this entire directory into the runtime stage — clean
+#     separation of deps.
+    PATH="/opt/venv/bin:${PATH}"
+#   ↑ Activate the venv by prepending it to PATH. All uv installs
+#     and python commands now use /opt/venv.
+
+
+
+
+# --- Dependency install (uv) ---
+COPY --from=ghcr.io/astral-sh/uv:[UV_VERSION] /uv /usr/local/bin/uv
+#   ↑ Copy the uv binary from its official container image.
+#     No need to pip-install uv — this is faster and doesn't pollute the venv.
+#     Pin a version tag for reproducibility (e.g. 0.6.12). Check latest at:
+#     https://github.com/astral-sh/uv/releases
+
+COPY pyproject.toml uv.lock ./
+#   ↑ Copy ONLY the manifest + lockfile first. Docker caches this layer:
+#     if these files haven't changed, deps won't be re-installed on next build.
+#     This is the key caching trick for fast rebuilds.
+RUN --mount=type=cache,target=/root/.cache/uv \
+#   ↑ Cache uv's download cache across builds (wheel downloads, etc.).
+    uv sync --frozen --no-dev --no-install-project
+#   ↑ --frozen: use uv.lock as-is, don't resolve or update.
+#     --no-dev: skip dev dependency groups (pytest, ruff, etc.).
+#     --no-install-project: install deps only, not the project itself
+#     (we haven't copied the source code yet).
+
+# Alternative: export to requirements.txt (avoids needing uv in builder)
+# RUN uv export --no-dev --frozen > requirements.txt \
+#  && pip install -r requirements.txt
+
+
+
+
+# --- Copy application code ---
+COPY . /build
+#   ↑ Done LATE so that code changes don't invalidate the deps cache layer above.
+#     If you have a monorepo, copy only the service folder instead.
+
+RUN --mount=type=cache,target=/root/.cache/uv \
+    uv sync --frozen --no-dev
+#   ↑ Now WITH the source code present, install the project itself into the venv.
+#     This registers entry points ([project.scripts]) and makes the package
+#     importable. Deps are already cached from the previous uv sync layer.
+
+# Optional: fail-fast checks in builder
+# RUN uv run pytest -q
+# RUN uv run ruff check .
+#   ↑ Running tests/lint in the builder means a broken build never produces
+#     an image. Trade-off: slower builds. Usually better handled in CI.
+
+
+
+
+
+
+
+
+
+
+
+
+########################################
+# 2) Optional: frontend build (Node)
+########################################
+# Uncomment if the project has a frontend that needs building.
+# The output is copied into the runtime stage.
+#
+# FROM node:20-bookworm-slim AS frontend
+# WORKDIR /frontend
+# COPY frontend/package*.json ./
+# RUN --mount=type=cache,target=/root/.npm npm ci
+#   ↑ npm ci = clean install from lockfile. Deterministic + faster than npm install.
+# COPY frontend/ .
+# RUN npm run build
+#   ↑ Output path depends on framework:
+#     Next.js (standalone): .next/standalone + .next/static + public
+#     Vite / CRA / SPA:    dist/ or build/
+
+
+
+
+
+
+
+
+
+
+
+
+
+########################################
+# 3) Runtime: minimal + non-root
+########################################
+FROM ${RUNTIME_IMAGE} AS runtime
+#   ↑ Fresh stage — starts clean. Only what we explicitly COPY ends up here.
+#     This is what gets deployed. Builder stage artifacts are discarded.
+
+ARG APP_NAME
+ARG APP_PORT
+ARG VERSION
+ARG VCS_REF
+ARG BUILD_DATE
+ARG SOURCE_REPO
+
+LABEL org.opencontainers.image.title="${APP_NAME}" \
+      org.opencontainers.image.version="${VERSION}" \
+      org.opencontainers.image.revision="${VCS_REF}" \
+      org.opencontainers.image.created="${BUILD_DATE}" \
+      org.opencontainers.image.source="${SOURCE_REPO}"
+#   ↑ OCI labels — machine-readable metadata (registries, SBOM tools, `docker inspect`).
+#     Only labels on the final stage appear in the built image.
+
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PATH="/opt/venv/bin:${PATH}" \
+#   ↑ Re-activate the venv we'll copy from builder.
+    APP_ENV="production" \
+#   ↑ Default env. Override at runtime: docker run -e APP_ENV=staging ...
+    APP_PORT="${APP_PORT}" \
+    TZ="Etc/UTC"
+#   ↑ Explicit timezone. Prevents host TZ leaking in.
+
+RUN useradd --uid 1000 --create-home --shell /usr/sbin/nologin appuser
+#   ↑ Non-root user with fixed UID. --uid 1000 must match the user: UID:GID
+#     in docker-compose.yaml (default: 1000:1000).
+#     --shell /usr/sbin/nologin = no interactive login.
+
+WORKDIR /app
+
+
+
+
+
+
+
+# --- Runtime system deps ---
+# ONLY packages needed at runtime (no compilers, no headers).
+RUN --mount=type=cache,target=/var/cache/apt,sharing=locked \
+    --mount=type=cache,target=/var/lib/apt,sharing=locked \
+    apt-get update && apt-get install -y --no-install-recommends \
+      ca-certificates \
+#     ↑ Needed if the app makes HTTPS calls at runtime.
+      # [ADD_RUNTIME_LIBS] (e.g. libpq5, curl)
+#     ↑ Runtime counterparts of build libs. Examples:
+#       libpq5       → runtime lib for psycopg2 (libpq-dev was build-time)
+#       curl         → needed if HEALTHCHECK uses curl
+    && rm -rf /var/lib/apt/lists/*
+
+COPY --from=builder /opt/venv /opt/venv
+#   ↑ Copy the entire virtualenv with all installed packages.
+COPY --from=builder /build /app
+#   ↑ Copy the application source code.
+
+# COPY --from=frontend /frontend/dist /app/static
+#   ↑ Uncomment to include frontend build output in the backend image.
+#     Next.js standalone: COPY --from=frontend /frontend/.next/standalone /app/frontend
+#     Next.js static:     COPY --from=frontend /frontend/.next/static /app/frontend/.next/static
+#     Next.js public:     COPY --from=frontend /frontend/public /app/frontend/public
+
+RUN chown -R appuser:appuser /app /opt/venv
+#   ↑ Ensure the non-root user owns everything it needs to read/execute.
+
+USER appuser
+#   ↑ All subsequent commands (and the container entrypoint) run as appuser.
+#     This is a security best practice — limits damage if the app is compromised.
+
+EXPOSE ${APP_PORT}
+#   ↑ Documentation: tells operators which port the container listens on.
+#     Does NOT actually publish the port — that's done with `docker run -p`.
+
+
+
+
+
+
+
+
+
+
+# --- Healthcheck ---
+# Docker (and Compose / Swarm) uses this to determine if the container is healthy.
+# Choose one strategy:
+#
+# HTTP endpoint (requires curl in the image):
+# HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+#   CMD curl -fsS "http://127.0.0.1:${APP_PORT}/health" || exit 1
+#
+# TCP check (no extra deps, just checks the port is open):
+# HEALTHCHECK --interval=30s --timeout=3s --start-period=20s --retries=3 \
+#   CMD python -c "import socket; s=socket.socket(); s.settimeout(2); s.connect(('127.0.0.1',${APP_PORT})); s.close()"
+
+STOPSIGNAL SIGTERM
+#   ↑ Signal sent by `docker stop`. SIGTERM is the standard graceful shutdown
+#     signal for web servers (uvicorn, gunicorn, etc.).
+
+
+
+
+
+
+
+
+
+
+
+
+# --- Entrypoint ---
+# The CMD form (exec form) is preferred over shell form
+# because it runs the process as PID 1 and receives signals correctly.
+#
+# Uvicorn (ASGI) — default for FastAPI / Starlette:
+CMD ["sh", "-c", "python -m uvicorn [PACKAGE].main:app --host=0.0.0.0 --port=${APP_PORT}"]
+#
+# Gunicorn + Uvicorn workers (ASGI, multi-worker production):
+# CMD ["sh", "-c", "python -m gunicorn [PACKAGE].main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${APP_PORT}"]
+#
+# CLI entry:
+# ENTRYPOINT ["python", "-m", "[PACKAGE].cli"]

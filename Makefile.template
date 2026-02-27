@@ -1,0 +1,70 @@
+# Developer helpers — [PROJECT_NAME]
+
+.PHONY: help lock venv sync format lint type test clean clean-all docker-build compose-up compose-down
+.DEFAULT_GOAL := help
+
+# Load environment variables if .env exists
+-include .env
+
+IMAGE_NAME ?= ghcr.io/[ORG]/[APP_NAME]
+IMAGE_TAG  ?= latest
+
+UV_CACHE_DIR ?= .uv_cache
+UV := UV_CACHE_DIR=$(UV_CACHE_DIR) uv
+
+# --- Core Dependencies ---
+
+.venv/.stamp: pyproject.toml uv.lock
+	$(UV) sync --frozen
+	@touch $@
+
+# --- Targets ---
+
+help: ## Show available targets
+	@grep -E '^[a-zA-Z0-9_.-]+:.*##' $(MAKEFILE_LIST) | \
+		awk 'BEGIN {FS = ":.*##"}; {printf "  %-16s %s\n", $$1, $$2}' | sort
+
+lock: ## Resolve dependencies and update uv.lock
+	$(UV) lock
+
+venv: .venv/.stamp ## Create virtual environment (internal)
+
+sync: .venv/.stamp ## Sync environment (depends on lock file)
+
+# --- Development Tools ---
+
+format: sync ## Auto-fix and format code
+	$(UV) run ruff check --fix .
+	$(UV) run ruff format .
+
+lint: sync ## Lint and format check (CI mode)
+	$(UV) run ruff check .
+	$(UV) run ruff format --check .
+
+type: sync ## Type check
+	$(UV) run mypy .
+
+test: sync ## Run tests
+	$(UV) run pytest -q
+
+# --- Cleanup ---
+
+clean: ## Remove caches and build artifacts
+	rm -rf .pytest_cache .mypy_cache .ruff_cache htmlcov .coverage coverage.xml
+	find . -type d -name "__pycache__" -exec rm -rf {} + 2>/dev/null || true
+	find . -type f -name "*.py[cod]" -delete 2>/dev/null || true
+	rm -rf *.egg-info src/*.egg-info
+
+clean-all: clean ## Also remove venv and tool caches
+	rm -rf .venv $(UV_CACHE_DIR)
+
+# --- Docker ---
+
+docker-build: ## Build Docker image
+	docker build -t $(IMAGE_NAME):$(IMAGE_TAG) --target runtime .
+
+compose-up: ## Start compose stack
+	docker compose up -d --build
+
+compose-down: ## Stop compose stack
+	docker compose down
