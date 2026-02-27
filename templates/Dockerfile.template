@@ -149,8 +149,6 @@ RUN --mount=type=cache,target=/root/.cache/uv \
 
 
 
-
-
 ########################################
 # 2) Optional: frontend build (Node)
 ########################################
@@ -297,14 +295,17 @@ STOPSIGNAL SIGTERM
 
 
 # --- Entrypoint ---
-# The CMD form (exec form) is preferred over shell form
-# because it runs the process as PID 1 and receives signals correctly.
+# `exec` replaces sh with the Python process, making it PID 1.
+# PID 1 receives SIGTERM from `docker stop` directly — no intermediary.
+# Without exec, sh would be PID 1 and your app might not shut down cleanly.
+# sh -c is still needed here to expand ${APP_PORT} at runtime.
+# If APP_PORT is fixed, use pure exec form: CMD ["python", "-m", "uvicorn", ...]
 #
 # Uvicorn (ASGI) — default for FastAPI / Starlette:
-CMD ["sh", "-c", "python -m uvicorn [PACKAGE].main:app --host=0.0.0.0 --port=${APP_PORT}"]
+CMD ["sh", "-c", "exec python -m uvicorn [PACKAGE].main:app --host=0.0.0.0 --port=${APP_PORT}"]
 #
 # Gunicorn + Uvicorn workers (ASGI, multi-worker production):
-# CMD ["sh", "-c", "python -m gunicorn [PACKAGE].main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${APP_PORT}"]
+# CMD ["sh", "-c", "exec python -m gunicorn [PACKAGE].main:app -k uvicorn.workers.UvicornWorker -b 0.0.0.0:${APP_PORT}"]
 #
 # CLI entry:
 # ENTRYPOINT ["python", "-m", "[PACKAGE].cli"]

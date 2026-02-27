@@ -90,6 +90,26 @@ secrets:
 # ==========================================================================
 # Services
 # ==========================================================================
+#
+# PRUNING GUIDE — remove what you don't need:
+#
+#   Don't need PostgreSQL?
+#     Delete: db service, db_net network, db_data volume, secrets section,
+#             DB_* vars + db_password secret in app, db_net from app.networks,
+#             db condition from app.depends_on.
+#
+#   Don't need Redis?
+#     Delete: redis service, redis_data volume,
+#             REDIS_URL var in app, redis condition from app.depends_on.
+#
+#   Don't need Ollama?
+#     Delete: ollama service, ollama_data volume, OLLAMA_HOST var in app.
+#     (already behind `profiles: [ollama]` — just delete it)
+#
+#   Don't need Traefik?
+#     Delete: proxy service.
+#     (already behind `profiles: [proxy]` — just delete it)
+#
 
 services:
   # --- Application ---
@@ -199,6 +219,8 @@ services:
     volumes:
       - app_cache:/app/.cache
 #     ↑ Persistent cache directory. Survives container restarts.
+      # - .:/app
+      #   ↑ Bind mount current directory for hot reloading in development.
 
     networks:
       - app_net

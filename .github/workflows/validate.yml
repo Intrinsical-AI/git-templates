@@ -1,0 +1,47 @@
+# CI for the git-templates repo itself.
+# Validates that every template file is syntactically correct
+# before anyone instantiates it in a real project.
+
+name: Validate templates
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  validate:
+    name: Validate template files
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v5
+
+      # --- YAML lint ---
+      - name: Install yamllint
+        run: pip install --quiet yamllint
+
+      - name: Lint YAML templates
+        run: |
+          yamllint -c .yamllint.yaml \
+            templates/ci.workflow.template.yml \
+            templates/docker-compose.template.yaml \
+            templates/pre-commit.template.yaml
+
+      # --- pre-commit schema ---
+      - name: Validate pre-commit config schema
+        run: |
+          pip install --quiet pre-commit
+          pre-commit validate-config templates/pre-commit.template.yaml
+
+      # --- Docker Compose parse ---
+      - name: Validate Compose file
+        run: |
+          mkdir -p templates/secrets
+          echo "ci-dummy" > templates/secrets/db_password.txt
+          docker compose -f templates/docker-compose.template.yaml config --quiet

@@ -6,19 +6,18 @@ Opinionated project templates for Python backend services. Copy what you need, f
 
 | File | Purpose |
 | ---- | ------- |
-| `README.template.md` | Project README with quickstart, usage, config, testing |
-| `ARCHITECTURE.template.md` | Architecture spec (domain, layers, APIs, observability, ...) |
-| `CHANGELOG.template.md` | Keep a Changelog format + SemVer |
-| `pyproject.template.toml` | Python metadata, deps, ruff, pytest, mypy, coverage config |
-| `Dockerfile.template` | Multi-stage build (builder + runtime), uv, non-root, healthcheck |
-| `docker-compose.template.yaml` | app + PostgreSQL + Redis + optional Traefik proxy |
-| `.env-compose.template` | Environment variables for Docker Compose |
-| `Makefile.template` | Developer shortcuts (uv sync, lint, test, docker build) |
-| `pre-commit.template.yaml` | Pre-commit hooks: ruff, mypy, file checks, gitleaks |
-| `.github/workflows/ci.template.yml` | GitHub Actions CI: lint, test, optional Docker build |
-| `.dockerignore.template` | Excludes for Docker build context |
-| `.gitignore.template` | Git ignores: caches, venvs, secrets, IDE files |
-| `.env.template` | Placeholder for local dev env vars |
+| `templates/README.template.md` | Project README with quickstart, usage, config, testing |
+| `templates/ARCHITECTURE.template.md` | Architecture spec (domain, layers, APIs, observability, ...) |
+| `templates/CHANGELOG.template.md` | Keep a Changelog format + SemVer |
+| `templates/pyproject.template.toml` | Python metadata, deps, ruff, pytest, mypy, coverage config |
+| `templates/Dockerfile.template` | Multi-stage build (builder + runtime), uv, non-root, healthcheck |
+| `templates/docker-compose.template.yaml` | app + PostgreSQL + Redis + optional Traefik proxy |
+| `templates/.env-compose.template` | Environment variables for Docker Compose |
+| `templates/Makefile.template` | Developer shortcuts (uv sync, lint, test, docker build) |
+| `templates/pre-commit.template.yaml` | Pre-commit hooks: ruff, mypy, file checks, gitleaks |
+| `templates/ci.workflow.template.yml` | GitHub Actions CI: lint, test, optional Docker build |
+| `templates/.dockerignore.template` | Excludes for Docker build context |
+| `templates/.gitignore.template` | Git ignores: caches, venvs, secrets, IDE files |
 
 
 ## Stack (default) — opinionated by design
@@ -43,5 +42,5 @@ These templates ship with a specific stack because **good defaults beat endless 
 
 - All placeholders use `[UPPERCASE_BRACKETS]` syntax
 - All text in English
-- Exhaustive inline comments in `Dockerfile`, `docker-compose.yaml`, and `pyproject.toml` (look for `↑` arrows)
+- Exhaustive inline comments in `Dockerfile.template`, `docker-compose.template.yaml`, and `pyproject.template.toml` (look for `↑` arrows)
 - Minimal filler — structure over prose
