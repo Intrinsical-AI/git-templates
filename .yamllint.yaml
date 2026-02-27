@@ -4,9 +4,13 @@ rules:
   line-length:
     max: 120
     level: warning
+  empty-lines: disable          # templates use deliberate section spacing
+  comments-indentation: disable # ↑ inline annotation style is intentional
+  document-start: disable       # templates use comment headers, not ---
   comments:
     min-spaces-from-content: 1
   truthy:
     allowed-values: ["true", "false"]
+    check-keys: false           # avoids false positive on GitHub Actions `on:` key
   braces:
     max-spaces-inside: 1
