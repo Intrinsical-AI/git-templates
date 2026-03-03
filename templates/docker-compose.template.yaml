@@ -425,6 +425,8 @@ services:
 #     ↑ Enable Traefik dashboard (http://localhost:8080 by default).
       - "--providers.docker=true"
 #     ↑ Auto-discover services via Docker labels.
+      - "--providers.docker.endpoint=tcp://socket_proxy:2375"
+#     ↑ Read Docker metadata through a restricted socket proxy (safer than direct docker.sock mount).
       - "--providers.docker.exposedbydefault=false"
 #     ↑ Don't expose containers unless they have traefik.enable=true label.
       - "--entrypoints.web.address=:80"
@@ -438,13 +440,42 @@ services:
       - "${PROXY_HTTP_PORT:-80}:80"
       # - "${PROXY_HTTPS_PORT:-443}:443"
 
-    volumes:
-      - /var/run/docker.sock:/var/run/docker.sock:ro
-#     ↑ Traefik reads Docker events to discover containers. :ro = read-only.
-#       Security note: access to docker.sock = root access to the host.
-#       In production, consider using Traefik's file provider instead.
+    depends_on:
+      socket_proxy:
+        condition: service_started
+#     ↑ Ensure the Docker socket proxy is available before Traefik starts.
 
     networks:
       - app_net
 
     # logging: *default_logging
+
+  # --- Docker socket proxy for Traefik (reduces host attack surface) ---
+  socket_proxy:
+    image: tecnativa/docker-socket-proxy:0.3
+    container_name: "[PROJECT_NAME]_socket_proxy"
+    profiles: ["proxy"]
+    restart: unless-stopped
+
+    environment:
+      LOG_LEVEL: warning
+      PING: 1
+      VERSION: 1
+      EVENTS: 1
+      CONTAINERS: 1
+      NETWORKS: 1
+#     ↑ Allow only the Docker API endpoints Traefik needs for service discovery.
+
+    volumes:
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+#     ↑ docker.sock stays mounted only in this restricted proxy service.
+
+    read_only: true
+    tmpfs:
+      - /run
+
+    networks:
+      - app_net
+
+    # If you don't need Docker auto-discovery, remove proxy+socket_proxy and
+    # switch Traefik to the file provider for stronger isolation.
